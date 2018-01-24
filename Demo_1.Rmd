@@ -1,0 +1,142 @@
+---
+title: "Project Demo 1"
+author: "Mughundhan Chandrasekar"
+date: "10/20/2017"
+output:
+  html_document: default
+  word_document: default
+---
+
+###1. About the Project / Data-Set
+The dataset comprises of sales data (of a renowned Super Market) for 1559 products across 10 stores in different cities (broadly classified based on the purchase power parity, working population, size and few other factors).
+
+The project aims to build a predictive model to analyze the sales of each product at a particular store. With this we shall understand the properties of products and stores which play a key role in increasing sales.
+The results of the model will be used to provide recommendations to improve the sales.
+
+
+```{r warning=FALSE, message=FALSE}
+rm(list = ls())
+setwd('/Users/Mughundhan/UIC/UIC Academics/FALL 2017/BIZ ANALYTICS STATS/Project')
+library(lubridate) # for csv files
+library(leaflet)   # interactive maps
+#library(dplyr)     # for piping purpose %>%
+#library(rMaps)     # route-map
+library(data.table)# aggregate
+library(ggplot2)   # barplot
+library(mice)      # imputing with plausible data values (drawn from a distribution specifically designed for each missing datapoint)
+train <- read.csv("Train.csv", header=T, na.strings=c("","NA")) #Empty spaces to be replaced by NA
+test <- read.csv("Test.csv", header=T, na.strings=c("","NA"))
+test$Item_Outlet_Sales <- NA
+fdata <- rbind(test, train)
+fdata <- as.data.table(fdata)
+```
+
+####1.1 Data Dictionary
+Let us have a look at the description of each variable in the dataset:
+
+1. **Item_Identifier**: Unique Product ID
+2. **Item_Weight**: Weight of the Product
+3. **Item_Fat_Content**: How much fat content the product contains (Low, Regular)
+4. **Item_Visibility**: The percent of *total display area* of all products in a store allocated to the particular product
+5. **Item_Type**: The Category to which the product belongs (eg: Breakfast, Soft Drinks etc)
+6. **Item_MRP**: Maximum Retail Price of the Product (Indian Rupees)
+7. **Outlet_Identifier**: Unique Store ID - multiple stores located at different cities
+8. **Outlet_Establishment_Year**: The year, when the store started its operation
+9. **Outlet_Size**: Size of the store (High, Medium, Small)
+10. **Outlet_Location_Type**: The type of the city in which the store is located (Tier1, Tier2 ....)
+11. **Outlet_Type**: The type of the outlet (Grocery store or a Super Market)
+12. **Item_Outlet_Sales**: Sales of the product in the particular store. [*Outcome Variable to be predicted*]
+
+####1.2 Inference from Attributes
+
+**The Structure of the data-set (all variables and its corresponding data-type) is given as follows:**
+
+```{r warning=FALSE, message=FALSE}
+str(fdata)
+```
+
+**Observation**
+
+1. There are 11 + 1 variables in the dataset (1-target variable: ***Item_Outlet_Sales***)
+2. We shall perform number operations on 3 numerical variables: ***Item_Weight, Item_Visibility, Item_MRP*** 
+3. There are several factor variables which will be transformed into character variables for feature engineering purpose: ***Item_Fat_Content, Outlet_Identifier, Outlet_Size, Outlet_Location_Type, Outlet_Type***
+4. There is only one variable with information regarding the date: ***Outlet_Establishment_Year***. We might perform simple numerical operations since only the year is given.
+5. Few variables (***Outlet_Size, Item_Weight***) contain missing values which needs to be imputed.
+
+
+###2. Hypotheses Generation
+Based on the basic data exploration, we shall have two levels of hypotheses: 
+**1. Store-level; 2. Product-level**.
+Both plays a crucial role in determining the sales of each product at specific stores located across different cities. The hypotheses generated at both the levels based on the available dataset are as follows:
+
+#####**I. Product-Level Hypotheses**
+
+1. Item_Fat_Content: Items are classified based on the fat content. Since we consume on low fat items as a part of our regular diet, It is highly possible that ***Low fat*** items are generally sold more than the items with high fat content.
+
+2. Item_Type: Items which we use on ***regular basis*** - like ready to eat, soft drinks has higher probability of being sold when compared with luxury items.
+
+3. Item_MRP: More expensive items might be bought occasionally. Items with ***lower prices*** might be a product which is being used on a regular basis. Thus, Low priced items might have sold better than expensive items.
+
+#####**II. Store-Level Hypotheses**
+
+1. Outlet_Size: ***Bigger outlets*** might attract bigger crowds. This results in increasing the sales of the products in that specific store.
+
+2. Outlet_Location_Type: ***Bigger cities*** or cities with high population density has a larger customer base for the stores at their location. Stores located in Tier-1 cities might have better sales than stores located in other types of cities.
+
+3. Outlet_Type: Similar to the previous hypotheses. ***Supermarkets*** look more fancy than grocery shops. Among supermarket, the highest among this sub-classification might attract larger crowds and emerge as the best selling store when compared with other outlet types.
+
+###3. Ideas for the Project / Plans to do in future
+
+###Idea(1): Exploratory Data Analysis followed by Model Building: 
+The basic idea is to perform the following three steps in a sequential manner:
+
+1. **Data Cleaning:** We need to clean the data prior to performing data analysis or data modeling in-order to get effective results.
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+sapply(fdata, function(x) sum(is.na(x))) #No. of Missing Values in each column
+```
+
+We can see that there are missing values in few attributes. We need to impute missing values by using an appropriate technique. Further, we need to work on ***outlier analysis*** as well.
+
+2. **Exploratory Data Analysis:** In-order to gain better insights about our data-set and understand the existing patterns, we need to plot graphs. This would eventually allow us to understand the contribution of each sub-classification in several attributes (***hypotheses testing***) and identify the relative importance of each attribute in-order to assign weights. Let us make it clear with an example:
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+ggplot(fdata, aes(x=as.factor(Outlet_Type), fill=as.factor(Outlet_Type) )) + 
+  geom_bar() +
+  stat_count(aes(label = ..count..), geom = "text", vjust=1.6, size=3.5, color="white") +
+  scale_fill_hue(c = 40) + 
+  labs(x="Categories for Outlet Type", y="Number of Items", title="Number of Items in each Outlet Type") + 
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+In the given bar-plot, we can see the distribution of items in each sub-category of the Super-Market. This gives us a rough idea about the importance of Super-market type in determining the Sales.
+
+3. **Model Building:** Perform several modeling techniques like Decision Trees, Random Forest and Linear Regression to name a few and consider the best performing model for final evaluation.
+
+###Idea (2): Exploratory Data Analysis followed by Ensemble Modelling: 
+The basic idea is to perform the following three steps in a sequential manner:
+
+1. **Data Cleaning:** Same as previously mentioned
+2. **Exploratory Data Analysis:** Same as previously mentioned
+3. **Ensemble Modeling:** Combine 2 or more models / classifiers which can be similar or dissimilar to give a more robust system. Simple words, combine several weak learners to give a strong prediction.Based on the results and knowledge we gather from the Exploratory Data Analysis step, we shall decide to perform one of the following
+    + Averaging: Defined as taking the average of predictions from models in case of regression problem or while predicting probabilities for the classification problem.
+    + Majority vote: Defined as taking the prediction with maximum vote / recommendation from multiple models predictions while predicting the outcomes of a classification problem.
+    + Weighted average: In this, different weights are applied to predictions from multiple models then taking the average which means giving high or low importance to specific model output.
+
+###4. Data Source
+
+Reference Link: https://datahack.analyticsvidhya.com/contest/practice-problem-big-mart-sales-iii/
+
+I am using a data-set which is currently posted as a challenge with a deadline to be posted in 72 days from now. ***In-order to access the data-set, we need to have an account and sign-up for this competition***. This competition closes on: Sun Dec 31 2017 12:29:59 GMT-0600 (Central Standard Time).
+
+###5. Impact of wrong predictions
+
+To evaluate how good is a model, we need to understand the impact of wrong predictions. If we predict sales to be higher than what they might be, the store will spend a lot of money making unnecessary arrangement which would lead to excess inventory. On the other side if I predict it too low, I will lose out on sales opportunity. A delicate balance is to be maintained!
+
+###6. References
+1. Handling Missing Values: https://www.r-bloggers.com/imputing-missing-data-with-r-mice-package/
+2. Feature Engineering: http://trevorstephens.com/kaggle-titanic-tutorial/r-part-4-feature-engineering/
+3. Model Building: http://blog.learningtree.com/how-to-build-a-predictive-model-using-r/
+4. Ensemble Modeling: https://machinelearningmastery.com/machine-learning-ensembles-with-r/ 
+5. Hypotheses Generation: https://discuss.analyticsvidhya.com/t/why-and-when-is-hypothesis-generation-important/2109
