@@ -1,0 +1,812 @@
+---
+title: "Sales Analysis - Full Report"
+author: "Mughundhan"
+date: "9/9/2017"
+output:
+  html_document: default
+  word_document: default
+---
+
+####1. About the Project
+The dataset comprises of sales data (of a renowned Super Market) for 1559 products across 10 stores in different cities (broadly classified based on the purchase power parity, working population, size and few other factors).
+
+The project aims to build a predictive model to analyze the sales of each product at a particular store. With this we shall understand the properties of products and stores which play a key role in increasing sales.
+The results of the model will be used to provide recommendations to improve the sales.
+
+#####1.1. NOTES
+
++ To evaluate how good is a model, let us understand the impact of wrong predictions. If we predict sales to be higher than what they might be, the store will spend a lot of money making unnecessary arrangement which would lead to excess inventory. On the other side if I predict it too low, I will lose out on sales opportunity.
+
+####2. Creating an appropriate Environment
+
+```{r warning=FALSE, message=FALSE}
+rm(list = ls())
+setwd('/Users/Mughundhan/UIC/UIC Academics/FALL 2017/BIZ ANALYTICS STATS/Project/Mid Report')
+library(lubridate) # for csv files
+library(leaflet)   # interactive maps
+library(dplyr)     # for piping purpose %>%
+library(data.table)# aggregate
+library(ggplot2)   # barplot
+library(mice)      # imputing with plausible data values (drawn from a distribution specifically designed for each missing datapoint)
+library(rpart)     # Decision Trees
+library(VIM)       # Visual Representation for MICE
+library(data.table)
+train <- read.csv("Train.csv", header=T, na.strings=c("","NA")) #Empty spaces to be replaced by NA
+test <- read.csv("Test.csv", header=T, na.strings=c("","NA"))
+test$Item_Outlet_Sales <- NA
+fdata <- rbind(test, train)
+fdata <- as.data.table(fdata)
+```
+
+####3. Data Exploration
+#####3.1 Data Dictionary
+Let us have a look at the description of each variable in the dataset:
+
+1. **Item_Identifier**: Unique Product ID
+2. **Item_Weight**: Weight of the Product
+3. **Item_Fat_Content**: How much fat content the product contains (Low, Regular)
+4. **Item_Visibility**: The percent of *total display area* of all products in a store allocated to the particular product
+5. **Item_Type**: The Category to which the product belongs (eg: Breakfast, Soft Drinks, Household etc)
+6. **Item_MRP**: Maximum Retail Price of the Product (Indian Rupees)
+7. **Outlet_Identifier**: Unique Store ID - multiple stores located at different cities
+8. **Outlet_Establishment_Year**: The year, when the store started its operation
+9. **Outlet_Size**: Size of the store (High, Medium, Small)
+10. **Outlet_Location_Type**: The type of the city in which the store is located (Tier1, Tier2 ....)
+11. **Outlet_Type**: The type of the outlet (Grocery store or a Super Market)
+12. **Item_Outlet_Sales**: Sales of the product in the particular store. [*Outcome Variable to be predicted*]
+
+#####3.2 Overview of the dataset with R
+Let us now perform basic operations to have a look at the summary and the structure of the dataset.
+
+```{r warning=FALSE, message=FALSE}
+summary(fdata)
+str(fdata)
+```
+
+**Observation**
+
+1. There are 11 + 1 variables in the dataset (1-target variable: Item_Outlet_Sales)
+2. We shall perform number operations on 3 numerical variables: *Item_Weight, Item_Visibility, Item_MRP* 
+3. There are several factor variables which will be transformed into character variables for feature engineering purpose: *Item_Fat_Content, Outlet_Identifier, Outlet_Size, Outlet_Location_Type, Outlet_Type*
+4. There is only one variable with information regarding the date: *Outlet_Establishment_Year*. We might perform simple numerical operations since only the year is given.
+5. Few variables (*Outlet_Size, Item_Weight*) contain missing values which needs to be imputed.
+
+#####3.2 Deeper Insights from the dataset using R functions
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+sapply(fdata, function(x) length(unique(x))) #Number of Unique Values in each column
+sapply(fdata, function(x) sum(is.na(x))) #Number of Missing Values in each column
+
+table(fdata$Item_Fat_Content) #Frequency of categories for Item_Fat_Content
+ggplot(fdata, aes(x=as.factor(Item_Fat_Content), fill=as.factor(Item_Fat_Content) )) + 
+  geom_bar() +
+  stat_count(aes(label = ..count..), geom = "text", vjust=1.6, size=3.5, color="white") +
+  scale_fill_hue(c = 40) + 
+  labs(x="Categories for Item_Fat_Content", y="Number of Items", title="Number of Items in each category based on the level of fat content") + 
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+
+table(fdata$Item_Type) #Frequency of categories for Item_Type
+ggplot(fdata, aes(x=as.factor(Item_Type), fill=as.factor(Item_Type) )) + 
+  geom_bar() +
+  stat_count(aes(label = ..count..), geom = "text", vjust=1.6, size=3.5, color="white") +
+  scale_fill_hue(c = 40) + 
+  labs(x="Categories for Item Type", y="Number of Items", title="Number of Items in each category based on the type of the item") + 
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+
+table(fdata$Outlet_Location_Type) #Frequency of categories for Outlet_Location_Type
+ggplot(fdata, aes(x=as.factor(Outlet_Type), fill=as.factor(Outlet_Type) )) + 
+  geom_bar() +
+  stat_count(aes(label = ..count..), geom = "text", vjust=1.6, size=3.5, color="white") +
+  scale_fill_hue(c = 40) + 
+  labs(x="Categories for Outlet Type", y="Number of Items", title="Number of Items in each Outlet Type") + 
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+
+table(fdata$Outlet_Size) #Frequency of categories for Outlet_Size
+ggplot(fdata, aes(x=as.factor(Outlet_Size), fill=as.factor(Outlet_Size) )) + 
+  geom_bar() +
+  stat_count(aes(label = ..count..), geom = "text", vjust=1.6, size=3.5, color="white") +
+  scale_fill_hue(c = 40) + 
+  labs(x="Categories for Outlet Size", y="Number of Items", title="Number of Items in different Outlet based on Size") + 
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+
+table(fdata$Outlet_Type) #Frequency of categories for Outlet_Type
+ggplot(fdata, aes(x=as.factor(Outlet_Type), fill=as.factor(Outlet_Type) )) + 
+  geom_bar() +
+  stat_count(aes(label = ..count..), geom = "text", vjust=1.6, size=3.5, color="white") +
+  scale_fill_hue(c = 40) + 
+  labs(x="Categories for Outlet Type", y="Number of Items", title="Number of Items in each Outlet Type") + 
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+
+```
+
+**Observation:**
+
+1. We can observe the number of missing values and the number of unique values (levels) in each column using sapply.
+2. The graphs display the distribution and contribution of each sub-category corresponding to that variable.
+
+####4. Hypotheses Generation
+Based on the basic data exploration, we shall have two levels of hypotheses: 
+**1. Store-level; 2. Product-level**.
+Both plays a crucial role in determining the sales of each product at specific stores located across different cities. The hypotheses generated at both the levels based on the available dataset are as follows:
+
+#####**I. Product-Level Hypotheses**
+
+1. Item_Fat_Content: Items are classified based on the fat content. Since we consume on low fat items as a part of our regular diet, It is highly possible that ***Low fat*** items are generally sold more than the items with high fat content.
+
+2. Item_Type: Items which we use on ***regular basis*** - like ready to eat, soft drinks has higher probability of being sold when compared with luxury items.
+
+3. Item_MRP: More expensive items might be bought occasionally. Items with ***lower prices*** might be a product which is being used on a regular basis. Thus, Low priced items might have sold better than expensive items.
+
+#####**II. Store-Level Hypotheses**
+
+1. Outlet_Size: ***Bigger outlets*** might attract bigger crowds. This results in increasing the sales of the products in that specific store.
+
+2. Outlet_Location_Type: ***Bigger cities*** or cities with high population density has a larger customer base for the stores at their location. Stores located in Tier-1 cities might have better sales than stores located in other types of cities.
+
+3. Outlet_Type: Similar to the previous hypotheses. ***Supermarkets*** look more fancy than grocery shops. Among supermarket, the highest among this sub-classification might attract larger crowds and emerge as the best selling store when compared with other outlet types.
+
+
+####5. Handling Missing Values
+
+#####5.1 Finding the missing values
+
+Identifying the missing values column-wise. The name of the column and the corresponding number of missing values in each column is given.
+
+```{r warning=FALSE, message=FALSE, eval=FALSE, echo=FALSE}
+sapply(fdata, function(x) sum(is.na(x))) #Number of Missing Values in each column
+```
+
+#####5.2 Imputing the missing values
+1. Item_Weight and Item_Identifier: Taking average of Item_Weight based on Item_Identifier and imputing missing values in Item_Weight
+ 
+```{r warning=FALSE, message=FALSE}
+length(unique(fdata$Item_Identifier)) #Identify no. of unique values in the Item_Identifier attribute
+avg_Item_Weight <- aggregate(Item_Weight~Item_Identifier, data=fdata, FUN=function(x) c(mean=mean(x), count=length(x))) #making an aggregate - similar to group by feature in SQL
+avg_Item_Weight <- as.data.table(avg_Item_Weight) #converting into data.table for easier computation
+
+cdata <- merge(fdata, avg_Item_Weight, by="Item_Identifier") #merging the data
+
+for(i in 1:nrow(cdata))
+{
+  if(is.na(cdata[i,2]))
+  {
+    cdata$Item_Weight.x[i] <- cdata$Item_Weight.y[i] #missing weights replaced by average weight of the item depending on the unique Item_Identifier
+  }
+}
+
+fdata <- cdata[ ,1:(ncol(cdata)-1)] #deleting the unnecessary column created during the imputation process
+
+#View(cdata)
+names(fdata)[names(fdata)=="Item_Weight.x"] <- "Item_Weight" #Renaming the attribute
+sapply(fdata, function(x) sum(is.na(x))) #Number of Missing Values in each column
+#View(fdata)
+
+rm(cdata, i)
+```
+
+2. Outlet_Size and Outlet_Type: Taking average of Outlet_Size based on Outlet_Type and imputing missing values in Outlet_Size
+
+```{r warning=FALSE, message=FALSE}
+table(fdata$Outlet_Type, fdata$Outlet_Size)
+round(prop.table(table(fdata$Outlet_Type, fdata$Outlet_Size), 1), 2) #Identify the proportion
+```
+
+
+**Observation:**
+
+1. All Grocery Store -> Small
+2. Most Super Market 1 -> Small
+3. All Super Market 2 -> Medium
+4. All Super Market 3 -> Medium
+
+```{r warning=FALSE, message=FALSE}
+fdata$Outlet_Size[is.na(fdata$Outlet_Size) & fdata$Outlet_Type == "Grocery Store"] <- "Small"
+fdata$Outlet_Size[is.na(fdata$Outlet_Size) & fdata$Outlet_Type == "Supermarket Type1"] <- "Small"
+fdata$Outlet_Size[is.na(fdata$Outlet_Size) & fdata$Outlet_Type == "Supermarket Type2"] <- "Medium"
+fdata$Outlet_Size[is.na(fdata$Outlet_Size) & fdata$Outlet_Type == "Supermarket Type3"] <- "Medium"
+sapply(fdata, function(x) sum(is.na(x))) #Number of Missing Values in each column
+
+table(fdata$Outlet_Type, fdata$Outlet_Size)
+round(prop.table(table(fdata$Outlet_Type, fdata$Outlet_Size), 1), 2)
+``` 
+
+
+####6. Feature Engineering
+
+We explored some nuances in the data in the data exploration section. Now let us try to resolve them and make our data ready for analysis. We will also create some new variables using the existing ones in this section.
+
+#####6.1. Consider combining Outlet_Type
+
+During exploration, we decided to consider combining the Supermarket Type2 and Type3 variables. But is that a good idea? A quick way to check that could be to analyze the mean sales by type of store. If they have similar sales, then keeping them separate won???t help much.
+
+```{r warning=FALSE, message=FALSE}
+avg_Item_Sales <- aggregate(Item_Outlet_Sales~Outlet_Type, data=fdata, FUN=function(x) c(mean=mean(x), count=length(x)))
+avg_Item_Sales <- as.data.table(avg_Item_Sales)
+rm(avg_Item_Sales)
+```
+
+**Observation**
+This shows significant difference between Supermarket Type2 and Type3 variables, hence we???ll leave them as it is.
+
+#####6.2. Modify Item_Visibility
+
+We noticed that the minimum value here is 0, which makes no practical sense. Lets consider it like missing information and impute it with mean visibility of that product.
+
+```{r warning=FALSE, message=FALSE}
+summary(fdata$Item_Visibility)
+
+rm(cdata)
+length(unique(fdata$Item_Identifier))
+avg_Item_Visibility <- aggregate(Item_Visibility~Item_Identifier, data=fdata, FUN=function(x) c(mean=mean(x), count=length(x)))
+avg_Item_Visibility <- as.data.table(avg_Item_Visibility)
+
+cdata <- merge(fdata, avg_Item_Visibility, by="Item_Identifier")
+
+for(i in 1:nrow(cdata))
+{
+  if(cdata[i,4]==0)
+  {
+    cdata$Item_Visibility.x[i] <- cdata$Item_Visibility.y[i]
+  }
+}
+
+fdata <- cdata[ ,1:(ncol(cdata)-1)]
+names(fdata)[names(fdata)=="Item_Visibility.x"] <- "Item_Visibility"
+#summary(fdata$Item_Visibility)
+```
+
+**Observation**
+No values with value zero in Item_Visibility variable
+
+**NOTE**
+We hypothesized that products with higher visibility are likely to sell more. But along with comparing products on absolute terms, we should look at the visibility of the product in that particular store as compared to the mean visibility of that product across all stores. This will give some idea about how much importance was given to that product in a store as compared to other stores.
+
+
+```{r warning=FALSE, message=FALSE}
+#colnames(fdata)
+
+rm(cdata, i)
+cdata <- merge(fdata, avg_Item_Visibility, by="Item_Identifier")
+ncol(fdata)
+fdata <- cdata
+
+
+names(fdata)[names(fdata)=="Item_Visibility.y"] <- "Item_Visibility_MeanRatio"
+names(fdata)[names(fdata)=="Item_Visibility.x"] <- "Item_Visibility"
+colnames(fdata)
+rm(cdata)
+fdata$Item_Visibility_MeanRatio <- as.numeric(fdata$Item_Visibility_MeanRatio)
+class(fdata$Item_Visibility_MeanRatio)
+class(fdata$Item_Visibility)
+
+fdata$Item_Visibility_MeanRatio1 <- fdata$Item_Visibility/fdata$Item_Visibility_MeanRatio
+quantile(fdata$Item_Visibility_MeanRatio1)
+fdata$Item_Visibility_MeanRatio <- fdata$Item_Visibility_MeanRatio1
+quantile(fdata$Item_Visibility_MeanRatio1)
+ncol(fdata)
+fdata <- fdata[, 1:(ncol(fdata)-1)]
+#head(fdata)
+```
+
+#####6.3. Broad category of Type of Item
+
+Earlier we saw that the Item_Type variable has 16 categories which might prove to be very useful in analysis. So its a good idea to combine them. One way could be to manually assign a new category to each. But there???s a catch here. If you look at the Item_Identifier, i.e. the unique ID of each item, it starts with either **F, D or N**. If you see the categories, these look like being Food, Drinks and Non-Consumables. So I???ve used the Item_Identifier variable to create a new column:
+
+```{r warning=FALSE, message=FALSE}
+fdata$Item_Type_Combined <- "NA"
+
+fdata$Item_Type_Combined[grepl("^[fF].*", fdata$Item_Identifier) ] <- "Food"
+fdata$Item_Type_Combined[grepl("^[dD].*", fdata$Item_Identifier) ] <- "Drinks"
+fdata$Item_Type_Combined[grepl("^[nN].*", fdata$Item_Identifier) ] <- "Non-Consumable"
+
+table(fdata$Item_Type_Combined)
+```
+
+#####6.4. Determine the years of operation of a store
+
+We wanted to make a new column depicting the years of operation of a store. 
+[NOTE: We are using 2013 Sales Data]
+
+```{r warning=FALSE, message=FALSE}
+fdata$Outlet_Years <- 2013 - fdata$Outlet_Establishment_Year
+#summary(fdata$Outlet_Years)
+table(fdata$Outlet_Years)
+```
+
+**Observation:** All the stores are 4-28 years old
+
+#####6.5. Modify categories of Item_Fat_Content
+
+We found typos and difference in representation in categories of Item_Fat_Content variable. 
+
+```{r warning=FALSE, message=FALSE}
+fdata$Item_Fat_Content.y <- "NA"
+fdata$Item_Fat_Content.y[grepl("^[lL].*", fdata$Item_Fat_Content) ] <- "Low Fat"
+fdata$Item_Fat_Content.y[grepl("^[rR].*", fdata$Item_Fat_Content) ] <- "Regular"
+
+fdata$Item_Fat_Content.y[fdata$Item_Type_Combined=="Non-Consumable"] <- "Non-Edible"
+fdata$Item_Fat_Content <- fdata$Item_Fat_Content.y
+table(fdata$Item_Fat_Content)
+
+fdata <- fdata[ ,1:(ncol(fdata)-1)]
+#View(fdata)
+```
+
+#####6.6. Exploratory Data Analysis
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+boxplot(fdata$Item_Outlet_Sales~fdata$Item_Fat_Content, xlab="Fat Content", ylab="Saless", main="Sales Pattern based on Fat Content", col = "green")
+boxplot(fdata$Item_Outlet_Sales~fdata$Outlet_Years, xlab="Outlet Years", ylab="Sales", main="Sales Pattern based on Outlet's age", col = "orange")
+boxplot(fdata$Item_Outlet_Sales~fdata$Item_Type_Combined, xlab="Type of Item", ylab="Sales", main="Sales Pattern based on type of the item", col = "blue")
+boxplot(fdata$Item_Outlet_Sales~fdata$Outlet_Identifier, xlab="Outlet", ylab="Sales", main="Sales Pattern based on Outlet", col = "red")
+boxplot(fdata$Item_Outlet_Sales~fdata$Outlet_Size, xlab="Outlet Size", ylab="Sales", main="Sales Pattern based on Outlet's size", col = "yellow")
+boxplot(fdata$Item_Outlet_Sales~fdata$Outlet_Location_Type, xlab="Location Type", ylab="Sales", main="Sales Pattern based on Location Type", col = "cyan")
+```
+
+**Observation:**
+
+1. Sales Pattern based on Fat Content: All three performs almost similar
+2. Sales Pattern based on Outlet's age: Outlets which are 28 years old performs far better and the outlet which is 16 years old is amongst the worst performers.
+3. Sales Pattern based on Type of Item: All three performs almost similar
+4. Sales Pattern based on Outlet: Outlet027 outperforms other outlets
+5. Sales Pattern based on Outlet's size: The medium sized outlets perform better.
+6. Sales Pattern based on Location Type: Tier-3 Performs better as Hypothesized.
+
+#####6.6. One-Hot Encoding
+
+One-Hot-Coding refers to creating dummy variables, one for each category of a categorical variable. 
+
+- For example, the **Item_Fat_Content** has 3 categories ??? ???Low Fat???, ???Regular??? and ???Non-Edible???. One hot coding will remove this variable and generate 3 new variables. Each will have binary numbers ??? 0 (if the category is not present) and 1(if category is present). [Creates **dummy variables**]
+
+- 'Item_Fat_Content'
+- 'Outlet_Location_Type'
+- 'Outlet_Size'
+- 'Item_Type_Combined'
+- 'Outlet_Type'
+- 'Outlet_Identifier'
+
+NOTE: all columns - Item_Identifier, Item_Weight, Item_Fat_Content, Item_Visibility, Item_Type, Item_MRP, Outlet_Identifier, Outlet_Establishment_Year, Outlet_Size, Outlet_Location_Type, Outlet_Type, Item_Outlet_Sales, Item_Visibility_MeanRatio, Item_Type_Combined, Outlet_Years 
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+rm(cdata)
+#tail(fdata)
+OHECdata <- fdata
+#View(OHECdata)
+
+OHECdata <- as.data.frame(OHECdata)
+sapply(fdata, function(x) length(unique(x))) #Number of Unique Values in each column
+
+
+#write.csv(fdata, "final_data.csv")
+
+#Item_Fat_Content
+OHECdata <- with(OHECdata,
+       data.frame(Item_Identifier, Item_Weight, Item_Visibility, Item_Type, Item_Fat_Content, Item_MRP, Outlet_Identifier, Outlet_Establishment_Year, Outlet_Size, Outlet_Location_Type, Outlet_Type, Item_Outlet_Sales, Item_Visibility_MeanRatio, Item_Type_Combined, Outlet_Years, model.matrix(~Item_Fat_Content-1,OHECdata)))
+
+#head(OHECdata)
+#View(OHECdata)
+```
+
+**Observation:** New Columns added are as follows:-
+
+1. Item_Fat_ContentLow.Fat
+2. Item_Fat_ContentNon.Edible
+3. Item_Fat_ContentRegular
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+
+#Outlet_Location_Type
+OHECdata <- with(OHECdata,
+       data.frame(Item_Identifier, Item_Weight, Item_Visibility, Item_Type, Item_Fat_Content, Outlet_Location_Type, Item_MRP, Outlet_Identifier, Outlet_Establishment_Year, Outlet_Size, Outlet_Type, Item_Outlet_Sales, Item_Visibility_MeanRatio, Item_Type_Combined, Outlet_Years, Item_Fat_ContentLow.Fat, Item_Fat_ContentNon.Edible, Item_Fat_ContentRegular, model.matrix(~Outlet_Location_Type-1,OHECdata)))
+
+#head(OHECdata)
+#View(OHECdata)
+```
+
+**Observation:** New Columns added are as follows:-
+
+1. Outlet_Location_TypeTier.1
+2. Outlet_Location_TypeTier.2
+3. Outlet_Location_TypeTier.3
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#Outlet_Size
+OHECdata <- with(OHECdata,
+       data.frame(Item_Identifier, Item_Weight, Item_Visibility, Item_Type, Item_Fat_Content, Outlet_Location_Type, Outlet_Size, Item_MRP, Outlet_Identifier, Outlet_Establishment_Year, Outlet_Type, Item_Outlet_Sales, Item_Visibility_MeanRatio, Item_Type_Combined, Outlet_Years, Item_Fat_ContentLow.Fat, Item_Fat_ContentNon.Edible, Item_Fat_ContentRegular, Outlet_Location_TypeTier.1, Outlet_Location_TypeTier.2, Outlet_Location_TypeTier.3, model.matrix(~Outlet_Size-1,OHECdata)))
+
+#head(OHECdata)
+#View(OHECdata)
+```
+
+**Observation:** New Columns added are as follows:-
+
+1. Outlet_SizeHigh
+2. Outlet_SizeMedium
+3. Outlet_SizeSmall
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#Item_Type_Combined
+OHECdata <- with(OHECdata,
+       data.frame(Item_Identifier, Item_Weight, Item_Visibility, Item_Type, Item_Fat_Content, Outlet_Location_Type, Outlet_Size, Item_Type_Combined, Item_MRP, Outlet_Identifier, Outlet_Establishment_Year, Outlet_Type, Item_Outlet_Sales, Item_Visibility_MeanRatio, Outlet_Years, Item_Fat_ContentLow.Fat, Item_Fat_ContentNon.Edible, Item_Fat_ContentRegular, Outlet_Location_TypeTier.1, Outlet_Location_TypeTier.2, Outlet_Location_TypeTier.3, Outlet_SizeHigh, Outlet_SizeMedium, Outlet_SizeSmall, model.matrix(~Item_Type_Combined-1,OHECdata)))
+
+#head(OHECdata)
+#View(OHECdata)
+```
+
+**Observation:** New Columns added are as follows:-
+
+1. Item_Type_CombinedDrinks
+2. Item_Type_CombinedFood
+3. Item_Type_CombinedNon.Consumable
+
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#Outlet_Type
+OHECdata <- with(OHECdata,
+       data.frame(Item_Identifier, Item_Weight, Item_Visibility, Item_Type, Item_Fat_Content, Outlet_Location_Type, Outlet_Size, Item_Type_Combined, Outlet_Type, Item_MRP, Outlet_Identifier, Outlet_Establishment_Year, Item_Outlet_Sales, Item_Visibility_MeanRatio, Outlet_Years, Item_Fat_ContentLow.Fat, Item_Fat_ContentNon.Edible, Item_Fat_ContentRegular, Outlet_Location_TypeTier.1, Outlet_Location_TypeTier.2, Outlet_Location_TypeTier.3, Outlet_SizeHigh, Outlet_SizeMedium, Outlet_SizeSmall, Item_Type_CombinedDrinks, Item_Type_CombinedFood, Item_Type_CombinedNon.Consumable, model.matrix(~Outlet_Type-1,OHECdata)))
+
+#head(OHECdata)
+#View(OHECdata)
+```
+
+**Observation:** New Columns added are as follows:-
+
+1. Outlet_TypeGrocery.Store
+2. Outlet_TypeSupermarket.Type1
+3. Outlet_TypeSupermarket.Type2
+4. Outlet_TypeSupermarket.Type3
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#Outlet_Identifier
+
+final_data <- OHECdata
+
+OHECdata <- with(OHECdata,
+       data.frame(Item_Identifier, Item_Weight, Item_Visibility, Item_Type, Item_Fat_Content, Outlet_Location_Type, Outlet_Size, Item_Type_Combined, Outlet_Type, Item_MRP, Outlet_Identifier, Outlet_Establishment_Year, Item_Outlet_Sales, Item_Visibility_MeanRatio, Outlet_Years, Item_Fat_ContentLow.Fat, Item_Fat_ContentNon.Edible, Item_Fat_ContentRegular, Outlet_Location_TypeTier.1, Outlet_Location_TypeTier.2, Outlet_Location_TypeTier.3, Outlet_SizeHigh, Outlet_SizeMedium, Outlet_SizeSmall, Item_Type_CombinedDrinks, Item_Type_CombinedFood, Item_Type_CombinedNon.Consumable, Outlet_TypeGrocery.Store, Outlet_TypeSupermarket.Type1, Outlet_TypeSupermarket.Type2, Outlet_TypeSupermarket.Type3, model.matrix(~Outlet_Identifier-1,OHECdata)))
+
+#head(OHECdata)
+#View(OHECdata)
+```
+**Observation:** Nine columns are added, each indicating the unique outlet identifier. With this, we can find which outlet has made most of the sales.
+
+
+######6.6.1. One-Hot Encoding - Validate
+
+Lets look at the 3 columns formed from Item_Fat_Content
+
+```{r warning=FALSE, message=FALSE}
+OHECdata <- as.data.table(OHECdata)
+
+head(cbind(OHECdata$Item_Fat_ContentLow.Fat, OHECdata$Item_Fat_ContentNon.Edible, OHECdata$Item_Fat_ContentRegular), 20)
+```
+
+**Observation:** We can see the binary values in the columns - One Hot Encoding worked!
+
+
+####7. Exporting Data
+
+Let us now export the dataset as follows:
+
+1. Remove the unnecessary columns - Item_Type, Establishment_Year
+2. Partition the data-set in such a way that the test data-set should not have the target variable or the dependent variable
+3. All other independent variables to be present in both the test data set and the train data set.
+4. In addition to the independent variables, the train data-set should also have the target variable or the dependent variable.
+```{r warning=FALSE, message=FALSE}
+OHECdata <- as.data.frame(OHECdata)
+drop_columns <- c("Item_Type","Outlet_Establishment_Year")
+Export_data <- OHECdata[ , !(names(OHECdata) %in% drop_columns)]
+
+#head(Export_data)
+
+Export_data <- as.data.table(Export_data)
+
+test_Export <- Export_data[is.na(Item_Outlet_Sales), ]
+train_Export <- Export_data[!is.na(Item_Outlet_Sales), ]
+
+# write.csv(Export_data, "data_Export.csv")
+# write.csv(test_Export, "test_Export.csv")
+# write.csv(train_Export, "train_Export.csv")
+rm(list = ls())
+```
+
+####8. Reading data 
+
+Now let us read the train and the test dataset separately for the purpose of model building.
+
+```{r warning=FALSE, message=FALSE}
+rm(list=ls())
+train <- read.csv("train_Export.csv", header=T, na.strings=c("","NA"))
+test <- read.csv("test_Export.csv", header=T, na.strings=c("","NA"))
+fdata <- read.csv("data_Export.csv", header=T, na.strings=c("","NA"))
+
+train <- as.data.table(train)
+test <- as.data.table(test)
+fdata <- as.data.table(fdata)
+
+#glimpse(train)
+```
+
+We can see that the data is properly exported on performing one-hot-encoding (with 0's and 1's indicating its presence). Now that we have the data ready, its time to start making predictive models.
+
+
+#####8.1. Baseline Model
+
+Baseline model is the one which requires no predictive model and its like an informed guess. For instance, in this case lets predict the sales as the overall average sales.
+
+NOTE: If the score of the predictive algorithm is below this, then there is something going seriously wrong and the data is to be checked.
+
+```{r warning=FALSE, message=FALSE}
+#Mean based:
+
+mean_sales <- mean(train$Item_Outlet_Sales)
+
+drop_columns <- c("X", "Item_Identifier", "Outlet_Identifier", "Item_Outlet_Sales")
+baseline_model <- test[,!(names(test) %in% drop_columns)] #input_variables_values_training_datasets
+baseline_model$Item_Outlet_Sales <- mean_sales
+```
+
+**Observation:** We can see that every observation in the **Item_Outlet_Sales** is predicted to be 2181.29. This is the average or mean of the Item_Outlet_Sales. Thus, gives a very poor model. The aim of this model is to have a benchamark below which our subsequent models  should not perform.
+
+
+
+#####8.2. Decision Trees
+```{r warning=FALSE, message=FALSE, eval=FALSE}
+train <- as.data.frame(train)
+library(rpart)     # Decision Trees
+
+dt <- rpart(Item_Outlet_Sales ~ Outlet_IdentifierOUT046 + Outlet_IdentifierOUT045 + Outlet_IdentifierOUT049
+                   + Outlet_IdentifierOUT035 + Outlet_IdentifierOUT018 + Outlet_IdentifierOUT019 + Outlet_IdentifierOUT027
+                   + Outlet_IdentifierOUT017 + Outlet_IdentifierOUT013 + Outlet_IdentifierOUT010 + Outlet_TypeSupermarket.Type3
+                   + Outlet_TypeSupermarket.Type2 + Outlet_TypeSupermarket.Type1 + Item_Type_CombinedFood + 
+                     Item_Type_CombinedNon.Consumable + Outlet_TypeGrocery.Store + Item_Type_CombinedDrinks + Outlet_SizeSmall
+                   + Outlet_SizeMedium + Outlet_Location_TypeTier.2 + Outlet_Location_TypeTier.3 + Outlet_Location_TypeTier.1 
+                   + Outlet_SizeHigh + Item_Fat_ContentRegular + Item_Fat_ContentNon.Edible + Item_Fat_ContentLow.Fat
+                   + Outlet_Years + Item_Visibility_MeanRatio + Item_MRP, data = train, method = "anova")
+
+plot(dt)
+text(dt, pretty = 0, cex = 0.5)
+summary(dt)
+drop_columns <- c("X", "Item_Identifier", "Outlet_Identifier", "Item_Outlet_Sales")
+dt_test <- test[,!(names(test) %in% drop_columns)] #input_variables_values_training_datasets
+class(dt)
+
+predicted_sales_dt <- predict(dt, dt_test)
+head(predicted_sales_dt)
+#dt_test$Item_Outlet_Sales <- predicted_sales_dt
+
+```
+
+**Observation:**
+
+Variable importance: (most important variable at 1.)
+
+1. **Item_MRP:** Price of the item     
+2. **Outlet_TypeGrocery.Store:** Outlet type is Grocery Store     
+3. **Item_Visibility_MeanRatio:** Space given for the item at the display      
+4. **Outlet_IdentifierOUT010:** Unique outlet identifier (there are 9 outlets involved in this analysis) 
+5. **Outlet_IdentifierOUT019:** Unique outlet identifier (there are 9 outlets involved in this analysis)                 
+6. **Outlet_Years:** Number of years since the outlet is opened      
+7. **Outlet_IdentifierOUT027:** Unique outlet identifier (there are 9 outlets involved in this analysis) 
+8. **Outlet_TypeSupermarket.Type3:** Outlet Type is Super-Market Type 3
+
+Further, we have predicted the Item_Outlet_Sales based on this decision tree model and have stored. The rmse and cp for the decision tree is computed and displayed at the end (along with the model comparison chunk)
+
+                           
+
+#####8.3. Random Forest
+
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+library(randomForest)
+train <- as.data.frame(train)
+
+rf <- randomForest(Item_Outlet_Sales ~ Outlet_IdentifierOUT046 + Outlet_IdentifierOUT045 + Outlet_IdentifierOUT049
+                   + Outlet_IdentifierOUT035 + Outlet_IdentifierOUT018 + Outlet_IdentifierOUT019 + Outlet_IdentifierOUT027
+                   + Outlet_IdentifierOUT017 + Outlet_IdentifierOUT013 + Outlet_IdentifierOUT010 + Outlet_TypeSupermarket.Type3
+                   + Outlet_TypeSupermarket.Type2 + Outlet_TypeSupermarket.Type1 + Item_Type_CombinedFood + 
+                     Item_Type_CombinedNon.Consumable + Outlet_TypeGrocery.Store + Item_Type_CombinedDrinks + Outlet_SizeSmall
+                   + Outlet_SizeMedium + Outlet_Location_TypeTier.2 + Outlet_Location_TypeTier.3 + Outlet_Location_TypeTier.1 
+                   + Outlet_SizeHigh + Item_Fat_ContentRegular + Item_Fat_ContentNon.Edible + Item_Fat_ContentLow.Fat
+                   + Outlet_Years + Item_Visibility_MeanRatio + Item_MRP, data = train, importance = TRUE, ntree=1000)
+which.min(rf$mse)
+imp <- as.data.frame(sort(importance(rf)[,1],decreasing = TRUE),optional = T)
+names(imp) <- "% Inc MSE"
+imp
+varImpPlot(rf, sort = TRUE, type = 1)
+
+test <- as.data.frame(test)
+
+drop_columns <- c("X", "Item_Identifier", "Outlet_Identifier", "Item_Outlet_Sales")
+rf_test <- test[,!(names(test) %in% drop_columns)] #input_variables_values_training_datasets
+
+
+predicted_sales_rf <- predict(rf, rf_test)
+rf_test$Item_Outlet_Sales <- predicted_sales_rf
+```
+**Observation:**
+
+1. It is not suprising to see that the variable importance predicted by decision tree and Random Forest is almost the same. (Random Forest is just the collection of Decision Trees)
+
+- train$Item_MRP	280.203753			
+- train$Outlet_Type	38.471388			
+- train$Outlet_Identifier	35.830600			
+- train$Outlet_Years	28.831678			
+- train$Outlet_Size	17.156380			
+- train$Item_Visibility	14.210743			
+- train$Outlet_Location_Type	10.665934			
+- train$Item_Weight	5.783006			
+- train$Item_Fat_Content	3.132697
+
+2.We have predicted the Item_Outlet_Sales based on this Random Forest model and have stored. 
+
+#####8.4. Linear Regression Model
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+library(plyr)
+library(dplyr)
+library(randomForest)
+library(corrplot)
+colnames(train)
+sub=data.frame(train$Item_Visibility,train$Item_MRP,train$Outlet_Years, train$Item_Outlet_Sales, train$Item_Weight, train$Item_Visibility_MeanRatio)
+sub <- cor(sub)
+corrplot(sub, method="circle", addCoef.col="black") 
+
+train <- as.data.frame(train)
+
+linear_model <- lm(Item_Outlet_Sales ~ Outlet_IdentifierOUT046 + Outlet_IdentifierOUT045 + Outlet_IdentifierOUT049
+                   + Outlet_IdentifierOUT035 + Outlet_IdentifierOUT018 + Outlet_IdentifierOUT019 + Outlet_IdentifierOUT027
+                   + Outlet_IdentifierOUT017 + Outlet_IdentifierOUT013 + Outlet_IdentifierOUT010 + Outlet_TypeSupermarket.Type3
+                   + Outlet_TypeSupermarket.Type2 + Outlet_TypeSupermarket.Type1 + Item_Type_CombinedFood + 
+                     Item_Type_CombinedNon.Consumable + Outlet_TypeGrocery.Store + Item_Type_CombinedDrinks + Outlet_SizeSmall
+                   + Outlet_SizeMedium + Outlet_Location_TypeTier.2 + Outlet_Location_TypeTier.3 + Outlet_Location_TypeTier.1 
+                   + Outlet_SizeHigh + Item_Fat_ContentRegular + Item_Fat_ContentNon.Edible + Item_Fat_ContentLow.Fat
+                   + Outlet_Years + Item_Visibility_MeanRatio + Item_MRP, data = train)
+summary(linear_model)
+barplot(sort(linear_model$coefficients), las=2)
+
+linear_model <- lm(Item_Outlet_Sales ~ Outlet_IdentifierOUT046 + Outlet_IdentifierOUT045 + Outlet_IdentifierOUT049
+                   + Outlet_IdentifierOUT035 + Outlet_IdentifierOUT018 + Outlet_IdentifierOUT019 + Outlet_IdentifierOUT027
+                   + Outlet_IdentifierOUT017 + Outlet_IdentifierOUT013 + Item_Type_CombinedFood + Item_Type_CombinedNon.Consumable + Item_Fat_ContentRegular + Item_Visibility_MeanRatio + Item_MRP, data = train)
+
+summary(linear_model)
+
+barplot(sort(linear_model$coefficients), las=2)
+
+
+
+drop_columns <- c("X", "Item_Identifier", "Outlet_Identifier", "Item_Outlet_Sales")
+lm_test <- test[,!(names(test) %in% drop_columns)] #input_variables_values_training_datasets
+
+predicted_sales_lm <- predict(linear_model, lm_test)
+lm_test$Item_Outlet_Sales <- predicted_sales_lm
+```
+
+**Observation:**
+
+1. Based on the correlation plot we can observe that Item_MRP is strongly correlated to the Item_Outlet_Sales: This is in-line with our hypotheses.
+
+2. Further we can see that the Item's Visibility ratio is negavtively correlated with the Item_Outlet_Sales: This is not in-line with our hypotheses.
+
+
+
+#####8.5. Comparison of Models
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+library(data.table)
+library(caret)
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+lm_accuracy <- train(Item_Outlet_Sales ~ Outlet_IdentifierOUT046 + Outlet_IdentifierOUT045 + Outlet_IdentifierOUT049
+                   + Outlet_IdentifierOUT035 + Outlet_IdentifierOUT018 + Outlet_IdentifierOUT019 + Outlet_IdentifierOUT027
+                   + Outlet_IdentifierOUT017 + Outlet_IdentifierOUT013 + Item_Type_CombinedFood + Item_Type_CombinedNon.Consumable + Item_Fat_ContentRegular + Item_Visibility_MeanRatio + Item_MRP, data=train, trControl=train_control, method="lm")
+##LINEAR REGRESSION MODEL
+print(lm_accuracy)
+
+dt_accuracy <- train(Item_Outlet_Sales ~ Outlet_IdentifierOUT046 + Outlet_IdentifierOUT045 + Outlet_IdentifierOUT049
+                   + Outlet_IdentifierOUT035 + Outlet_IdentifierOUT018 + Outlet_IdentifierOUT019 + Outlet_IdentifierOUT027
+                   + Outlet_IdentifierOUT017 + Outlet_IdentifierOUT013 + Outlet_IdentifierOUT010 + Outlet_TypeSupermarket.Type3
+                   + Outlet_TypeSupermarket.Type2 + Outlet_TypeSupermarket.Type1 + Item_Type_CombinedFood + 
+                     Item_Type_CombinedNon.Consumable + Outlet_TypeGrocery.Store + Item_Type_CombinedDrinks + Outlet_SizeSmall
+                   + Outlet_SizeMedium + Outlet_Location_TypeTier.2 + Outlet_Location_TypeTier.3 + Outlet_Location_TypeTier.1 
+                   + Outlet_SizeHigh + Item_Fat_ContentRegular + Item_Fat_ContentNon.Edible + Item_Fat_ContentLow.Fat
+                   + Outlet_Years + Item_Visibility_MeanRatio + Item_MRP, data = train, method = "rpart", trControl=train_control)
+##DECISION TREE
+print(dt_accuracy)
+
+##RANDOM FOREST
+which.min(rf$mse)
+```
+**Inferences:**
+
+Based on the model comparison we can see that Random Forests outperform Decision Trees and Linear Regression Models. This is because of the optimal selection of the parameters and the dependent variables.
+
+**To make the model better:**
+
+We can try several sets of parameters to identify the optimal set of predictors. With these predictors, we can make use of the RandomForest model.
+
+
+####9. Final Prediction - Optimization
+
+Final prediction using Random Forest Model is performed as shown below: 
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+library(randomForest)
+train <- as.data.frame(train)
+
+rf <- randomForest(Item_Outlet_Sales ~ Item_MRP	+			
+Outlet_TypeGrocery.Store	+			
+Item_Visibility_MeanRatio	+			
+Outlet_Years	+			
+Outlet_IdentifierOUT027	+			
+Outlet_TypeSupermarket.Type3	+			
+Outlet_TypeSupermarket.Type1	+			
+Item_Type_CombinedFood	+			
+Outlet_IdentifierOUT010	+			
+Outlet_TypeSupermarket.Type2, data = train, importance = TRUE, ntree=1000)
+
+which.min(rf$mse)
+imp <- as.data.frame(sort(importance(rf)[,1],decreasing = TRUE),optional = T)
+names(imp) <- "% Inc MSE"
+imp
+varImpPlot(rf, sort = TRUE, type = 1)
+
+test <- as.data.frame(test)
+
+drop_columns <- c("X", "Item_Identifier", "Outlet_Identifier", "Item_Outlet_Sales")
+rf_test <- test[,!(names(test) %in% drop_columns)] #input_variables_values_training_datasets
+
+
+predicted_sales_rf <- predict(rf, rf_test)
+rf_test$Item_Outlet_Sales <- predicted_sales_rf
+```
+
+
+
+Combining results of multiple models along with our final prediction:
+
+```{r warning=FALSE, message=FALSE}
+library(data.table)
+
+comp_data <- cbind(rf_test$Item_Outlet_Sales, train$Item_Identifier, train$Item_MRP, train$Outlet_Type, dt_test$Item_Outlet_Sales, lm_test$Item_Outlet_Sales, baseline_model$Item_Outlet_Sales, train$Outlet_Identifier, train$Outlet_Years, train$Outlet_Size, train$Item_Visibility, train$Outlet_Location_Type, train$Item_Weight, train$Item_Fat_Content)
+comp_data <- as.data.table(comp_data)
+
+names(comp_data)[names(comp_data)=="V1"] <- "Predicted_Sales"
+names(comp_data)[names(comp_data)=="V2"] <- "Item_Identifier"
+names(comp_data)[names(comp_data)=="V3"] <- "Item_MRP"
+names(comp_data)[names(comp_data)=="V4"] <- "Outlet_Type"
+names(comp_data)[names(comp_data)=="V5"] <- "Outlet_Identifier"
+names(comp_data)[names(comp_data)=="V6"] <- "Outlet_Years"
+names(comp_data)[names(comp_data)=="V7"] <- "Outlet_Size"
+names(comp_data)[names(comp_data)=="V8"] <- "Item_Visibility"
+names(comp_data)[names(comp_data)=="V9"] <- "Outlet_Location_Type"
+names(comp_data)[names(comp_data)=="V10"] <- "Item_Weight"
+names(comp_data)[names(comp_data)=="V11"] <- "Item_Fat_Content"
+
+write.csv(comp_data, "data_Predicted.csv")
+
+head(comp_data)
+
+# colnames(comp_data)
+# View(comp_data)
+# class(comp_data)
+# 
+# anova(rf,dt, linear_model, mean_sales)
+# anova(linear_model)
+```
+
+
+####10. Inference and Insights
+
+Now let us have a look at the facts which we can infer from our analysis and model building phase:
+
+1. We can conclude that the **Item_MRP** proves to be most important contributing factor - for purchase of any item. This denotes the Maximum Retail Price at which the item can be sold at any store.
+
+2. Based on the analysis, we shall infer that people like to frequently visit and purchase from Outlet which is designated to be a **grocery store** rather than a huge super market.
+
+3. Further,  we can confirm that the item for which the visibility range is high, i.e. the display area allocated for an item is higher, the item has sold better.
+
+4. Finally, the outlet which is older or which is working for over a very long period time proves to make more sales than the recently opened stores.
+
+5. The **sales prediction** for the items is made using Random Forest (since this has proved to be the best model). The dataset is attached along with the zip file for the review purpose.
